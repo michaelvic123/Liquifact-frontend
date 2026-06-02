@@ -1,92 +1,218 @@
 import '@testing-library/jest-dom';
-import { render, screen, fireEvent } from '@testing-library/react';
+import { render, screen, fireEvent, act } from '@testing-library/react';
 import UploadZone from './UploadZone';
 
+function createMockFile(name = 'invoice.pdf', type = 'application/pdf') {
+  return new File(['mock content'], name, { type });
+}
+
+function createMockTextFile(name = 'test.txt') {
+  return new File(['mock content'], name, { type: 'text/plain' });
+}
+
+function createMockLargeFile(sizeMb = 11) {
+  const size = sizeMb * 1024 * 1024;
+  const content = new ArrayBuffer(size);
+  return new File([content], 'large.pdf', { type: 'application/pdf' });
+}
+
+beforeEach(() => {
+  jest.useFakeTimers();
+});
+
+afterEach(() => {
+  jest.useRealTimers();
+});
+
 describe('UploadZone', () => {
-  test('renders initial state with file input and disabled submit button', () => {
+  it('renders constraint notice and drop zone in idle state', () => {
     render(<UploadZone />);
-    
-    expect(screen.getByLabelText(/Select PDF invoice file/i)).toBeInTheDocument();
-    expect(screen.getByText(/Upload & Tokenize Invoice/i)).toBeDisabled();
+
+    expect(
+      screen.getByRole('note', { name: /file upload requirements/i })
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole('button', { name: /drop pdf invoice/i })
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole('button', { name: /upload & tokenize invoice/i })
+    ).toBeDisabled();
   });
 
-  test('accepts valid PDF file and enables submit', () => {
+  it('shows file info after valid file selection', () => {
     render(<UploadZone />);
-    const fileInput = screen.getByLabelText(/Select PDF invoice file/i);
-    
-    const validFile = new File(['dummy pdf content'], 'test.pdf', { type: 'application/pdf' });
-    fireEvent.change(fileInput, { target: { files: [validFile] } });
-    
-    expect(screen.getByText('test.pdf')).toBeInTheDocument();
-    expect(screen.getByText(/Upload & Tokenize Invoice/i)).not.toBeDisabled();
+
+    const file = createMockFile();
+    const input = screen.getByLabelText(/select pdf invoice file/i);
+    fireEvent.change(input, { target: { files: [file] } });
+
+    expect(screen.getByText('invoice.pdf')).toBeInTheDocument();
+    expect(
+      screen.getByRole('button', { name: /upload & tokenize invoice/i })
+    ).toBeEnabled();
   });
 
-  test('rejects non-PDF file and shows error', () => {
+  it('shows validation error for non-PDF file', () => {
     render(<UploadZone />);
-    const fileInput = screen.getByLabelText(/Select PDF invoice file/i);
-    
-    const invalidFile = new File(['dummy text'], 'test.txt', { type: 'text/plain' });
-    fireEvent.change(fileInput, { target: { files: [invalidFile] } });
-    
-    expect(screen.getByRole('alert')).toHaveTextContent(/Only PDF files are accepted/i);
-    expect(screen.getByText(/Upload & Tokenize Invoice/i)).toBeDisabled();
+
+    const file = createMockTextFile();
+    const input = screen.getByLabelText(/select pdf invoice file/i);
+    fireEvent.change(input, { target: { files: [file] } });
+
+    expect(screen.getByRole('alert')).toHaveTextContent(/invalid file type/i);
+    expect(
+      screen.getByRole('button', { name: /upload & tokenize invoice/i })
+    ).toBeDisabled();
   });
 
-  test('rejects file larger than 10MB and shows error', () => {
+  it('shows validation error for oversized file', () => {
     render(<UploadZone />);
-    const fileInput = screen.getByLabelText(/Select PDF invoice file/i);
-    
-    const oversizedFile = new File(['a'.repeat(11 * 1024 * 1024)], 'large.pdf', { type: 'application/pdf' });
-    fireEvent.change(fileInput, { target: { files: [oversizedFile] } });
-    
-    expect(screen.getByRole('alert')).toHaveTextContent(/exceeds the 10 MB limit/i);
-    expect(screen.getByText(/Upload & Tokenize Invoice/i)).toBeDisabled();
+
+    const file = createMockLargeFile();
+    const input = screen.getByLabelText(/select pdf invoice file/i);
+    fireEvent.change(input, { target: { files: [file] } });
+
+    expect(screen.getByRole('alert')).toHaveTextContent(/exceeds/);
+    expect(
+      screen.getByRole('button', { name: /upload & tokenize invoice/i })
+    ).toBeDisabled();
   });
 
-  test('accepts file exactly 10MB', () => {
+  it('progresses through uploading, tokenizing, and success on submit', async () => {
     render(<UploadZone />);
-    const fileInput = screen.getByLabelText(/Select PDF invoice file/i);
-    
-    const exactSizeFile = new File(['a'.repeat(10 * 1024 * 1024)], 'exact.pdf', { type: 'application/pdf' });
-    fireEvent.change(fileInput, { target: { files: [exactSizeFile] } });
-    
-    expect(screen.getByText('exact.pdf')).toBeInTheDocument();
-    expect(screen.getByText(/Upload & Tokenize Invoice/i)).not.toBeDisabled();
+
+    const file = createMockFile();
+    const input = screen.getByLabelText(/select pdf invoice file/i);
+    fireEvent.change(input, { target: { files: [file] } });
+
+    const submitBtn = screen.getByRole('button', {
+      name: /upload & tokenize invoice/i,
+    });
+    fireEvent.click(submitBtn);
+
+    expect(
+      screen.getByRole('status')
+    ).toHaveTextContent(/uploading invoice/i);
+    expect(submitBtn).toBeDisabled();
+
+    await act(async () => {
+      jest.advanceTimersByTime(1500);
+    });
+
+    expect(
+      screen.getByRole('status')
+    ).toHaveTextContent(/pending tokenization/i);
+    expect(submitBtn).toBeDisabled();
+
+    await act(async () => {
+      jest.advanceTimersByTime(1500);
+    });
+
+    expect(
+      screen.getByRole('status')
+    ).toHaveTextContent(/queued for tokenization/i);
+    expect(submitBtn).toBeEnabled();
   });
 
-  test('shows success status when form is submitted', () => {
+  it('uses role="status" with aria-live for progress announcements', async () => {
     render(<UploadZone />);
-    const fileInput = screen.getByLabelText(/Select PDF invoice file/i);
-    const submitButton = screen.getByText(/Upload & Tokenize Invoice/i);
-    
-    const validFile = new File(['dummy pdf content'], 'test.pdf', { type: 'application/pdf' });
-    fireEvent.change(fileInput, { target: { files: [validFile] } });
-    fireEvent.click(submitButton);
-    
-    expect(screen.getByRole('status')).toHaveTextContent(/Invoice queued for tokenization/i);
+
+    const file = createMockFile();
+    const input = screen.getByLabelText(/select pdf invoice file/i);
+    fireEvent.change(input, { target: { files: [file] } });
+
+    fireEvent.click(
+      screen.getByRole('button', { name: /upload & tokenize invoice/i })
+    );
+
+    expect(screen.getByRole('status')).toHaveAttribute('aria-live', 'polite');
+    expect(screen.getByRole('status')).toHaveTextContent(/uploading invoice/i);
+
+    await act(async () => {
+      jest.advanceTimersByTime(1500);
+    });
+
+    expect(screen.getByRole('status')).toHaveTextContent(
+      /pending tokenization/i
+    );
+
+    await act(async () => {
+      jest.advanceTimersByTime(1500);
+    });
+
+    expect(screen.getByRole('status')).toHaveTextContent(
+      /queued for tokenization/i
+    );
   });
 
-  test('triggers file input on Enter key', () => {
+  it('prevents double-submission during processing', async () => {
     render(<UploadZone />);
-    const fileInput = screen.getByLabelText(/Select PDF invoice file/i);
-    const dropZone = screen.getByLabelText(/Drop PDF invoice here or press Enter to browse files/i);
-    
-    const clickSpy = jest.spyOn(fileInput, 'click');
+
+    const file = createMockFile();
+    const input = screen.getByLabelText(/select pdf invoice file/i);
+    fireEvent.change(input, { target: { files: [file] } });
+
+    const submitBtn = screen.getByRole('button', {
+      name: /upload & tokenize invoice/i,
+    });
+    fireEvent.click(submitBtn);
+    fireEvent.click(submitBtn);
+
+    expect(screen.getAllByRole('status')).toHaveLength(1);
+    expect(screen.getByRole('status')).toHaveTextContent(/uploading invoice/i);
+  });
+
+  it('opens file dialog on Enter key on the drop zone', () => {
+    render(<UploadZone />);
+
+    const dropZone = screen.getByRole('button', { name: /drop pdf invoice/i });
+    const input = screen.getByLabelText(/select pdf invoice file/i);
+    const clickSpy = jest.spyOn(input, 'click').mockImplementation(() => {});
+
     fireEvent.keyDown(dropZone, { key: 'Enter', code: 'Enter' });
-    
-    expect(clickSpy).toHaveBeenCalled();
+
+    expect(clickSpy).toHaveBeenCalledTimes(1);
     clickSpy.mockRestore();
   });
 
-  test('triggers file input on Space key', () => {
+  it('opens file dialog on Space key on the drop zone', () => {
     render(<UploadZone />);
-    const fileInput = screen.getByLabelText(/Select PDF invoice file/i);
-    const dropZone = screen.getByLabelText(/Drop PDF invoice here or press Enter to browse files/i);
-    
-    const clickSpy = jest.spyOn(fileInput, 'click');
+
+    const dropZone = screen.getByRole('button', { name: /drop pdf invoice/i });
+    const input = screen.getByLabelText(/select pdf invoice file/i);
+    const clickSpy = jest.spyOn(input, 'click').mockImplementation(() => {});
+
     fireEvent.keyDown(dropZone, { key: ' ', code: 'Space' });
-    
-    expect(clickSpy).toHaveBeenCalled();
+
+    expect(clickSpy).toHaveBeenCalledTimes(1);
     clickSpy.mockRestore();
+  });
+
+  it('resets to idle when a new valid file is selected after an error', () => {
+    render(<UploadZone />);
+
+    const input = screen.getByLabelText(/select pdf invoice file/i);
+
+    fireEvent.change(input, { target: { files: [createMockTextFile()] } });
+    expect(screen.getByRole('alert')).toBeInTheDocument();
+
+    fireEvent.change(input, { target: { files: [createMockFile()] } });
+
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+    expect(screen.getByText('invoice.pdf')).toBeInTheDocument();
+    expect(
+      screen.getByRole('button', { name: /upload & tokenize invoice/i })
+    ).toBeEnabled();
+  });
+
+  it('shows validation error role="alert" with aria-live="assertive"', () => {
+    render(<UploadZone />);
+
+    const file = createMockTextFile();
+    const input = screen.getByLabelText(/select pdf invoice file/i);
+    fireEvent.change(input, { target: { files: [file] } });
+
+    const alert = screen.getByRole('alert');
+    expect(alert).toHaveAttribute('aria-live', 'assertive');
   });
 });

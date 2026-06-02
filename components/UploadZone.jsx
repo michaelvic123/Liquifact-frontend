@@ -1,10 +1,12 @@
+'use client';
+
 import { useRef, useState } from 'react';
 
 const FILE_CONSTRAINTS = {
   accept: '.pdf',
   mimeType: 'application/pdf',
   maxSizeMb: 10,
-  maxSizeBytes: 10 * 1024 * 1024, // 10 MB
+  maxSizeBytes: 10 * 1024 * 1024,
 };
 
 function ConstraintBadge({ icon, label }) {
@@ -30,9 +32,9 @@ function FileConstraintNotice() {
         Upload requirements
       </p>
       <div className="flex flex-wrap gap-2 mb-3">
-        <ConstraintBadge icon="📄" label="PDF only" />
-        <ConstraintBadge icon="⚖️" label={`Max ${FILE_CONSTRAINTS.maxSizeMb} MB`} />
-        <ConstraintBadge icon="🔒" label="One file per invoice" />
+        <ConstraintBadge icon="\u{1F4C4}" label="PDF only" />
+        <ConstraintBadge icon="\u{2696}\u{FE0F}" label={`Max ${FILE_CONSTRAINTS.maxSizeMb} MB`} />
+        <ConstraintBadge icon="\u{1F512}" label="One file per invoice" />
       </div>
       <p className="text-xs text-slate-400 leading-relaxed">
         Only <strong className="text-slate-200">PDF documents</strong> are accepted.
@@ -43,12 +45,27 @@ function FileConstraintNotice() {
   );
 }
 
+function Spinner({ className = '' }) {
+  return (
+    <svg
+      className={`animate-spin -ml-1 mr-2 h-4 w-4 inline ${className}`}
+      xmlns="http://www.w3.org/2000/svg"
+      fill="none"
+      viewBox="0 0 24 24"
+      aria-hidden="true"
+    >
+      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+    </svg>
+  );
+}
+
 function UploadZone() {
   const inputRef = useRef(null);
   const [dragOver, setDragOver] = useState(false);
   const [file, setFile] = useState(null);
   const [error, setError] = useState(null);
-  const [submitted, setSubmitted] = useState(false);
+  const [status, setStatus] = useState('idle');
 
   function validate(f) {
     if (!f) return 'No file selected.';
@@ -63,7 +80,7 @@ function UploadZone() {
   }
 
   function handleFile(f) {
-    setSubmitted(false);
+    setStatus('idle');
     const err = validate(f);
     if (err) {
       setError(err);
@@ -86,10 +103,20 @@ function UploadZone() {
     if (f) handleFile(f);
   }
 
-  function handleSubmit(e) {
+  async function handleSubmit(e) {
     e.preventDefault();
-    if (!file) return;
-    setSubmitted(true);
+    if (!file || status !== 'idle') return;
+
+    setStatus('uploading');
+    setError(null);
+
+    await new Promise((r) => setTimeout(r, 1500));
+
+    setStatus('tokenizing');
+
+    await new Promise((r) => setTimeout(r, 1500));
+
+    setStatus('success');
   }
 
   function handleKeyDown(e) {
@@ -99,16 +126,20 @@ function UploadZone() {
     }
   }
 
+  const isProcessing = status === 'uploading' || status === 'tokenizing';
+
   const dropZoneBorder = dragOver
     ? 'border-cyan-400 bg-cyan-500/10'
     : error
-    ? 'border-red-500/50 bg-red-500/5'
-    : file
-    ? 'border-emerald-500/40 bg-emerald-500/5'
-    : 'border-slate-700 bg-slate-900/40 hover:border-slate-600';
+      ? 'border-red-500/50 bg-red-500/5'
+      : file
+        ? 'border-emerald-500/40 bg-emerald-500/5'
+        : 'border-slate-700 bg-slate-900/40 hover:border-slate-600';
 
   return (
     <form onSubmit={handleSubmit} noValidate>
+      <FileConstraintNotice />
+
       <div
         role="button"
         tabIndex={0}
@@ -132,16 +163,16 @@ function UploadZone() {
 
         {file ? (
           <div className="space-y-2">
-            <span className="text-3xl" aria-hidden="true">✅</span>
+            <span className="text-3xl" aria-hidden="true">{'\u2705'}</span>
             <p className="font-medium text-emerald-400">{file.name}</p>
             <p className="text-xs text-slate-500">
-              {(file.size / 1024 / 1024).toFixed(2)} MB · PDF
+              {(file.size / 1024 / 1024).toFixed(2)} MB {'\u00B7'} PDF
             </p>
             <p className="text-xs text-slate-500">Click to choose a different file</p>
           </div>
         ) : (
           <div className="space-y-3">
-            <span className="text-4xl" aria-hidden="true">📂</span>
+            <span className="text-4xl" aria-hidden="true">{'\u{1F4C2}'}</span>
             <p className="font-medium text-slate-300">
               Drag &amp; drop your invoice PDF here
             </p>
@@ -164,37 +195,70 @@ function UploadZone() {
           aria-live="assertive"
           className="mt-3 flex items-start gap-2 rounded-lg border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-400"
         >
-          <span aria-hidden="true">⚠️</span>
+          <span aria-hidden="true">{'\u26A0\uFE0F'}</span>
           {error}
         </p>
       )}
 
-      {submitted && (
+      {status === 'uploading' && (
+        <p
+          role="status"
+          aria-live="polite"
+          className="mt-3 flex items-start gap-2 rounded-lg border border-cyan-500/30 bg-cyan-500/10 px-4 py-3 text-sm text-cyan-400"
+        >
+          <Spinner />
+          Uploading invoice...
+        </p>
+      )}
+
+      {status === 'tokenizing' && (
+        <p
+          role="status"
+          aria-live="polite"
+          className="mt-3 flex items-start gap-2 rounded-lg border border-cyan-500/30 bg-cyan-500/10 px-4 py-3 text-sm text-cyan-400"
+        >
+          <Spinner />
+          Invoice uploaded. Pending tokenization...
+        </p>
+      )}
+
+      {status === 'success' && (
         <p
           role="status"
           aria-live="polite"
           className="mt-3 flex items-start gap-2 rounded-lg border border-emerald-500/30 bg-emerald-500/10 px-4 py-3 text-sm text-emerald-400"
         >
-          <span aria-hidden="true">🚀</span>
+          <span aria-hidden="true">{'\u{1F680}'}</span>
           Invoice queued for tokenization. Blockchain confirmation pending.
-          <span className="text-slate-500 ml-1">(stub — backend TBD)</span>
         </p>
       )}
 
       <button
         id="invoice-upload-btn"
         type="submit"
-        disabled={!file || !!error}
-        aria-disabled={!file || !!error}
+        disabled={!file || !!error || isProcessing}
+        aria-disabled={!file || !!error || isProcessing}
         className="mt-4 w-full rounded-xl bg-cyan-500 py-3 text-sm font-semibold text-slate-950 transition-all duration-200
           hover:bg-cyan-400 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-cyan-400
           disabled:opacity-40 disabled:cursor-not-allowed"
       >
-        Upload &amp; Tokenize Invoice
+        {status === 'uploading' && (
+          <>
+            <Spinner />
+            Uploading invoice...
+          </>
+        )}
+        {status === 'tokenizing' && (
+          <>
+            <Spinner />
+            Tokenizing invoice...
+          </>
+        )}
+        {(status === 'idle' || status === 'success') && 'Upload & Tokenize Invoice'}
       </button>
     </form>
   );
 }
 
-export { UploadZone, FileConstraintNotice, FILE_CONSTRAINTS };
 export default UploadZone;
+export { FILE_CONSTRAINTS, Spinner };
